@@ -1,18 +1,89 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import { useEffect, useRef } from 'react';
+import { Sparkles, Trophy, Cpu, Shield, Zap, Info } from 'lucide-react';
 
-import { useEffect } from 'react';
+// --- ENGINE GLOBALS ---
+let audioCtx: any = null;
+let soundManager: any = null;
 
 export default function App() {
   useEffect(() => {
-    const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const vignette = document.getElementById('vignette');
+    // --- ERROR LOGGING ---
+    (window as any).gameLog = (msg: string) => {
+      console.log("[Oyun]: " + msg);
+      const logEl = document.getElementById('debug-log');
+      if (logEl) logEl.innerText = msg;
+    };
+    (window as any).gameLog("Başlatılıyor...");
+
+    // --- AUDIO INITIALIZATION ---
+    function initAudio() {
+      try {
+        if (audioCtx) return;
+        const AudioContext = (window as any).AudioContext || (window as any).webkitAudioContext;
+        if (AudioContext) audioCtx = new AudioContext();
+      } catch (e) {
+        console.error("Ses motoru başlatılamadı:", e);
+      }
+    }
+
+    console.log("Gölge Labirenti başlatılıyor...");
+
+    // 1. DÜZELTME: Tüm sahne geçiş mantığını tek yerde topla (Rekürsiyonu önle)
+    const performSceneSwitch = (sceneId: string) => {
+      (window as any).gameLog("Sahne yükleniyor: " + sceneId);
+      document.querySelectorAll('.scene').forEach(s => s.classList.remove('active'));
+      const scene = document.getElementById(sceneId);
+      if (scene) scene.classList.add('active');
+
+      // Başlıkları güncelle
+      const globalTitle = document.getElementById('global-header-title');
+      const globalSubtitle = document.getElementById('global-header-subtitle');
+      if (globalTitle && globalSubtitle) {
+        const titles: any = {
+          'splash-screen': ["Gölge Labirenti", "Karanlığın Derinlikleri"],
+          'map-screen': ["Kadim Harita", "Gölge Diyarı"],
+          'door-scene': ["Mühürlü Kapı", "Bölge Geçidi"],
+          'game-scene': ["Gölge Labirenti", `${state.level}. Derinlik`]
+        };
+        if (titles[sceneId]) {
+          globalTitle.innerText = titles[sceneId][0];
+          globalSubtitle.innerText = titles[sceneId][1];
+        }
+      }
+
+      // Harita kaydırma
+      if (sceneId === 'map-screen') {
+        try {
+          updateMapHUD();
+          const container = scene?.querySelector('.map-container');
+          if (container) {
+            const activeRegion = regionData.find(r => r.id === progress.maxUnlockedLevel);
+            if (activeRegion) {
+              const topVal = parseFloat(activeRegion.top);
+              setTimeout(() => {
+                const targetY = (topVal / 100) * 1400 - (window.innerHeight / 2);
+                container.scrollTo({ top: targetY, behavior: 'smooth' });
+              }, 100);
+            }
+          }
+        } catch (e) { console.error(e); }
+      }
+    };
+
+    (window as any).showScene = function (sceneId: string) {
+      if (soundManager) soundManager.play('click', 0.4);
+      if (sceneId === 'game-scene' && soundManager) soundManager.startAmbient();
+      performSceneSwitch(sceneId);
+    };
+
+    function showScene(sceneId: string) {
+      performSceneSwitch(sceneId);
+    }
+
     const runes = ["ᚠ", "ᚢ", "ᚦ", "ᚨ", "ᚱ", "ᚲ", "ᚷ", "ᚹ", "ᚺ", "ᚾ", "ᛟ", "ᛈ", "ᛉ", "ᛊ", "ᛏ", "ᛒ"];
+    const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement;
+    const ctx = canvas?.getContext('2d');
+    const vignette = document.getElementById('vignette');
 
     let progress = { charLevel: 1, maxHealth: 100, lightMod: 1.0, regenMod: 1.0, totalUpgrades: 0, maxUnlockedLevel: 1, collectedScrolls: [] as string[] };
     let state = { level: 1, score: 0, active: false, cd: false, gridSize: 15, cellSize: 70, scrollsRequired: 0, scrollsCollected: 0, shakeAmount: 0, guardianNear: false, flashActive: false, health: 100, takingDamage: false, inventoryOpen: false };
@@ -23,6 +94,19 @@ export default function App() {
     let guardian = { x: 0, y: 0, sx: 0, sy: 0, stunned: 0, wait: 0, speed: 18 };
     let exit = { x: 0, y: 0 };
     let crystals: { x: number, y: number, active: boolean }[] = [], scrolls: { x: number, y: number, active: boolean, text: string }[] = [], camera = { x: 0, y: 0 };
+    let particles: { x: number, y: number, vx: number, vy: number, life: number, color: string }[] = [];
+
+    function spawnParticles(x: number, y: number, color: string, count = 10) {
+      for (let i = 0; i < count; i++) {
+        particles.push({
+          x, y,
+          vx: (Math.random() - 0.5) * 5,
+          vy: (Math.random() - 0.5) * 5,
+          life: 1.0,
+          color
+        });
+      }
+    }
 
     const texts = [
       "Güneşin terk ettiği bu topraklarda, yalnızca kendi içindeki ışığa güvenebilirsin.",
@@ -33,56 +117,126 @@ export default function App() {
       "Derinlik arttıkça zamanın anlamı yiter. Hızlı ol."
     ];
 
-    function showScene(sceneId: string) {
-      document.querySelectorAll('.scene').forEach(s => s.classList.remove('active'));
-      const scene = document.getElementById(sceneId);
+    // --- SOUND ENGINE ---
+    soundManager = {
+      play: (type: string, volume = 0.5) => {
+        if (!audioCtx) initAudio();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
 
-      const globalTitle = document.getElementById('global-header-title');
-      const globalSubtitle = document.getElementById('global-header-subtitle');
-
-      if (scene) {
-        scene.classList.add('active');
-
-        // Update Global Header Title based on scene
-        if (globalTitle && globalSubtitle) {
-          if (sceneId === 'splash-screen') {
-            globalTitle.innerText = "Gölge Labirenti";
-            globalSubtitle.innerText = "Karanlığın Derinlikleri";
-          } else if (sceneId === 'map-screen') {
-            globalTitle.innerText = "Kadim Harita";
-            globalSubtitle.innerText = "Gölge Diyarı";
-          } else if (sceneId === 'door-scene') {
-            globalTitle.innerText = "Mühürlü Kapı";
-            globalSubtitle.innerText = "Bölge Geçidi";
-          } else if (sceneId === 'game-scene') {
-            globalTitle.innerText = "Gölge Labirenti";
-            globalSubtitle.innerText = `${state.level}. Derinlik`;
-          }
+        const now = audioCtx.currentTime;
+        if (type === 'step') {
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(150, now);
+          osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+          gain.gain.setValueAtTime(volume, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+          osc.start(); osc.stop(now + 0.1);
+        } else if (type === 'click') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(800, now);
+          gain.gain.setValueAtTime(volume, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+          osc.start(); osc.stop(now + 0.05);
+        } else if (type === 'collect') {
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(440, now);
+          osc.frequency.exponentialRampToValueAtTime(880, now + 0.2);
+          gain.gain.setValueAtTime(volume, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+          osc.start(); osc.stop(now + 0.2);
+        } else if (type === 'damage') {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(120, now);
+          osc.frequency.exponentialRampToValueAtTime(40, now + 0.3);
+          gain.gain.setValueAtTime(volume, now);
+          gain.gain.linearRampToValueAtTime(0, now + 0.3);
+          osc.start(); osc.stop(now + 0.3);
         }
+      },
+      heartbeat: (intensity: number) => {
+        if (!audioCtx) initAudio();
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(60, now);
+        osc.frequency.exponentialRampToValueAtTime(30, now + 0.1);
+        gain.gain.setValueAtTime(intensity * 0.4, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        osc.start(); osc.stop(now + 0.1);
 
-        if (sceneId === 'map-screen') {
-          updateMapHUD();
-          const container = scene.querySelector('.map-container');
-          if (container) {
-            // Find current active region position
-            const activeRegion = regionData.find(r => r.id === progress.maxUnlockedLevel);
-            if (activeRegion) {
-              const topVal = parseFloat(activeRegion.top); // e.g., 85
-              setTimeout(() => {
-                // Total map height is 1400px as defined in CSS
-                const targetY = (topVal / 100) * 1400 - (window.innerHeight / 2);
-                container.scrollTo({ top: targetY, behavior: 'smooth' });
-              }, 100);
-            } else {
-              // Fallback to bottom if for some reason we don't find it
-              setTimeout(() => {
-                container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
-              }, 100);
-            }
+        setTimeout(() => {
+          if (!audioCtx) return;
+          const osc2 = audioCtx.createOscillator();
+          const gain2 = audioCtx.createGain();
+          osc2.connect(gain2); gain2.connect(audioCtx.destination);
+          osc2.type = 'sine';
+          osc2.frequency.setValueAtTime(50, audioCtx.currentTime);
+          osc2.frequency.exponentialRampToValueAtTime(25, audioCtx.currentTime + 0.15);
+          gain2.gain.setValueAtTime(intensity * 0.2, audioCtx.currentTime);
+          gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+          osc2.start(); osc2.stop(audioCtx.currentTime + 0.15);
+        }, 150);
+      },
+      ambient: null as any,
+      startAmbient: () => {
+        if (!audioCtx) initAudio();
+        if (soundManager.ambient) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        const filter = audioCtx.createBiquadFilter();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(40, audioCtx.currentTime);
+
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(200, audioCtx.currentTime);
+
+        gain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start();
+
+        setInterval(() => {
+          if (audioCtx && audioCtx.state === 'running') {
+            filter.frequency.exponentialRampToValueAtTime(100 + Math.random() * 400, audioCtx.currentTime + 2);
           }
-        }
+        }, 2000);
+
+        soundManager.ambient = { osc, gain };
+      }
+    };
+
+    // --- SAVE / LOAD SYSTEM ---
+    function saveGame() {
+      const data = {
+        progress: progress,
+        score: state.score
+      };
+      localStorage.setItem('golge_labirenti_save', JSON.stringify(data));
+      console.log("Oyun kaydedildi.");
+    }
+
+    function loadGame() {
+      const saved = localStorage.getItem('golge_labirenti_save');
+      if (saved) {
+        const data = JSON.parse(saved);
+        Object.assign(progress, data.progress);
+        state.score = data.score || 0;
+        console.log("Oyun yüklendi.");
+        updateMapHUD();
       }
     }
+
+
+    // showScene consolidated above to prevent recursion
 
     (window as any).prepareGateTransition = function (lvl: number) {
       state.level = lvl;
@@ -366,6 +520,7 @@ export default function App() {
         if (type === 'regen') progress.regenMod += 0.4;
         progress.charLevel = 1 + Math.floor(progress.totalUpgrades / 2);
         state.health = progress.maxHealth;
+        saveGame();
         updateInventoryUI(); updateHealthUI();
         const scoreVal = document.getElementById('map-score-global');
         const charLvlVal = document.getElementById('map-level-global');
@@ -373,6 +528,7 @@ export default function App() {
         if (charLvlVal) charLvlVal.innerText = progress.charLevel.toString();
       }
     };
+
 
     function generateMaze() {
       maze = Array(state.gridSize).fill(null).map(() => Array(state.gridSize).fill(1));
@@ -492,14 +648,66 @@ export default function App() {
       guardian.sx += (guardian.x - guardian.sx) * 0.1; guardian.sy += (guardian.y - guardian.sy) * 0.1;
       const distG = Math.hypot(guardian.sx - player.sx, guardian.sy - player.sy) * state.cellSize;
       if (distG < baseRadius * 2.5) {
-        ctx.fillStyle = `rgba(255, 0, 76, ${Math.max(0.1, 1 - (distG / (baseRadius * 2.5)))})`;
-        ctx.beginPath(); ctx.arc(guardian.sx * state.cellSize + state.cellSize / 2, guardian.sy * state.cellSize + state.cellSize / 2, state.cellSize / 2.2, 0, Math.PI * 2); ctx.fill();
+        const gx = guardian.sx * state.cellSize + state.cellSize / 2;
+        const gy = guardian.sy * state.cellSize + state.cellSize / 2;
+
+        ctx.save();
+        ctx.translate(gx, gy);
+        const pulse = 1 + Math.sin(Date.now() / 200) * 0.2;
+        ctx.scale(pulse, pulse);
+
+        // Shadow Core
+        const grad = ctx.createRadialGradient(0, 0, 5, 0, 0, state.cellSize / 2);
+        grad.addColorStop(0, 'rgba(255, 0, 50, 0.8)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(0, 0, state.cellSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Tendrils
+        ctx.strokeStyle = 'rgba(255, 0, 50, 0.4)';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 8; i++) {
+          ctx.rotate(Math.PI / 4);
+          ctx.beginPath();
+          ctx.moveTo(10, 0);
+          const t = Date.now() / 100 + i;
+          ctx.quadraticCurveTo(20, Math.sin(t) * 10, 40, Math.cos(t) * 5);
+          ctx.stroke();
+        }
+        ctx.restore();
       }
 
       player.sx += (player.x - player.sx) * 0.2; player.sy += (player.y - player.sy) * 0.2;
-      ctx.fillStyle = state.takingDamage ? '#ff004c' : `rgba(255, 255, 255, ${0.4 + 0.6 * healthMod})`;
-      ctx.beginPath(); ctx.arc(player.sx * state.cellSize + state.cellSize / 2, player.sy * state.cellSize + state.cellSize / 2, state.cellSize / 5, 0, Math.PI * 2); ctx.fill();
+
+      // Draw Particles
+      particles.forEach((p, i) => {
+        p.x += p.vx; p.y += p.vy; p.life -= 0.02;
+        if (p.life <= 0) particles.splice(i, 1);
+        ctx.fillStyle = p.color.replace(')', `, ${p.life})`);
+        ctx.fillRect(p.x, p.y, 3, 3);
+      });
+
+      // Player Orb (Restored to Circle with Polish)
+      const px = player.sx * state.cellSize + state.cellSize / 2;
+      const py = player.sy * state.cellSize + state.cellSize / 2;
+      const orbRadius = state.cellSize / 5;
+
+      ctx.beginPath();
+      const playerGrad = ctx.createRadialGradient(px, py, 0, px, py, orbRadius);
+      playerGrad.addColorStop(0, state.takingDamage ? '#ff004c' : '#fff');
+      playerGrad.addColorStop(1, state.takingDamage ? 'rgba(255, 0, 76, 0)' : 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = playerGrad;
+      ctx.arc(px, py, orbRadius * 1.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.fillStyle = state.takingDamage ? '#ff004c' : '#fff';
+      ctx.arc(px, py, orbRadius * 0.6, 0, Math.PI * 2);
+      ctx.fill();
       ctx.restore();
+
 
       const finalRadius = baseRadius;
       const beamX = lx + player.dir.x * (finalRadius * 0.4);
@@ -522,6 +730,10 @@ export default function App() {
         else if (state.takingDamage) viewport.classList.add('hard-shaking');
         else if (state.guardianNear) viewport.classList.add('shaking');
         else viewport.classList.remove('shaking', 'hard-shaking');
+
+        const distToG = Math.hypot(guardian.x - player.x, guardian.y - player.y);
+        if (state.active && distToG < 2) viewport.classList.add('glitch-active');
+        else viewport.classList.remove('glitch-active');
       }
 
       requestAnimationFrame(draw);
@@ -552,15 +764,25 @@ export default function App() {
       });
 
       const distToG = Math.hypot(guardian.x - player.x, guardian.y - player.y);
-      state.guardianNear = (distToG < 4);
+      state.guardianNear = (distToG < 5);
+
+      // Heartbeat pulse logic
+      if (state.active && state.guardianNear) {
+        if (!(window as any).lastHeartbeat || Date.now() - (window as any).lastHeartbeat > (distToG * 200 + 300)) {
+          soundManager.heartbeat(Math.max(0, 1 - distToG / 6));
+          (window as any).lastHeartbeat = Date.now();
+        }
+      }
 
       if (distToG < 0.7 && guardian.stunned === 0) {
+        if (!state.takingDamage) { soundManager.play('damage', 0.4); spawnParticles(player.sx * state.cellSize, player.sy * state.cellSize, 'rgba(255,0,0,1)'); }
         state.takingDamage = true; state.health -= 2.0;
         const damageOverlay = document.getElementById('damage-overlay');
         if (damageOverlay) damageOverlay.style.opacity = "1";
         updateHealthUI();
         if (state.health <= 0) showModal("RUHUN TÜKENDİ", "Gölge Yiyen ruhunu tamamen çekti...");
       } else {
+
         state.takingDamage = false;
         const damageOverlay = document.getElementById('damage-overlay');
         if (damageOverlay) damageOverlay.style.opacity = "0";
@@ -569,15 +791,17 @@ export default function App() {
         }
       }
 
-      scrolls.forEach(s => { if (s.active && s.x === player.x && s.y === player.y) { s.active = false; state.scrollsCollected++; state.score += 500; progress.collectedScrolls.push(s.text); updateScrollHUD(); (window as any).showStory(s.text); const scoreVal = document.getElementById('map-score-global'); if (scoreVal) scoreVal.innerText = state.score.toString(); } });
-      crystals.forEach(c => { if (c.active && c.x === player.x && c.y === player.y) { c.active = false; state.score += 100; const scoreVal = document.getElementById('map-score-global'); if (scoreVal) scoreVal.innerText = state.score.toString(); } });
+      scrolls.forEach(s => { if (s.active && s.x === player.x && s.y === player.y) { s.active = false; state.scrollsCollected++; state.score += 500; progress.collectedScrolls.push(s.text); updateScrollHUD(); (window as any).showStory(s.text); const scoreVal = document.getElementById('map-score-global'); if (scoreVal) scoreVal.innerText = state.score.toString(); soundManager.play('collect', 0.6); spawnParticles(s.x * state.cellSize, s.y * state.cellSize, 'rgba(255,204,0,1)'); } });
+      crystals.forEach(c => { if (c.active && c.x === player.x && c.y === player.y) { c.active = false; state.score += 100; const scoreVal = document.getElementById('map-score-global'); if (scoreVal) scoreVal.innerText = state.score.toString(); soundManager.play('click', 0.3); spawnParticles(c.x * state.cellSize, c.y * state.cellSize, 'rgba(0,242,255,1)'); } });
+
 
       if (state.scrollsCollected >= state.scrollsRequired && player.x === exit.x && player.y === exit.y) showModal("DERİNLERE İNİŞ", "Ruhun bir sonraki katman için hazır.");
     }
 
-    (window as any).showStory = function (txt: string) { state.active = false; const storyPanel = document.getElementById('story-panel'); if (storyPanel) { storyPanel.style.display = 'block'; const storyContent = document.getElementById('story-content'); if (storyContent) storyContent.innerText = txt; } };
-    (window as any).closeStory = function () { const storyPanel = document.getElementById('story-panel'); if (storyPanel) storyPanel.style.display = 'none'; state.active = true; };
-    function move(dx: number, dy: number) { if (!state.active) return; player.dir = { x: dx, y: dy }; const nx = player.x + dx, ny = player.y + dy; if (maze[ny]?.[nx] === 0) { player.x = nx; player.y = ny; } }
+    (window as any).showStory = function (txt: string) { state.active = false; soundManager.play('click', 0.5); const storyPanel = document.getElementById('story-panel'); if (storyPanel) { storyPanel.style.display = 'block'; const storyContent = document.getElementById('story-content'); if (storyContent) storyContent.innerText = txt; } };
+    (window as any).closeStory = function () { soundManager.play('click', 0.3); const storyPanel = document.getElementById('story-panel'); if (storyPanel) storyPanel.style.display = 'none'; state.active = true; };
+    function move(dx: number, dy: number) { if (!state.active) return; player.dir = { x: dx, y: dy }; const nx = player.x + dx, ny = player.y + dy; if (maze[ny]?.[nx] === 0) { player.x = nx; player.y = ny; soundManager.play('step', 0.1); } }
+
 
     (window as any).triggerFlash = function () {
       if (state.cd || !state.active) return;
@@ -603,10 +827,12 @@ export default function App() {
         state.level++;
         if (state.level > progress.maxUnlockedLevel) {
           progress.maxUnlockedLevel = state.level;
+          saveGame();
         }
         if (state.level > 6) {
           showModal("NİHAİ ZAFER", "Gölge Labirenti'nin tüm sırlarını çözdün. Karanlık artık senden korkuyor.");
           state.level = 1;
+          saveGame();
           return;
         }
       } else if (titleText === "NİHAİ ZAFER") {
@@ -614,21 +840,51 @@ export default function App() {
         state.score = 0;
         progress.maxUnlockedLevel = 1;
         progress.collectedScrolls = [];
+        saveGame();
         (window as any).exitToMap();
         return;
       } else {
         state.level = 1;
         state.score = 0;
         progress.collectedScrolls = [];
+        saveGame();
         (window as any).exitToMap();
         return;
       }
       init();
     };
 
+    function processStep() {
+      soundManager.play('step', 0.1);
+    }
+
+
+    // İlk sahneyi anında yükle (Siyah ekranı önlemek için)
+    try {
+      (window as any).showScene('splash-screen');
+      (window as any).gameLog("Splash ekranı aktif.");
+    } catch (e) { console.error(e); }
+
     createSplashRunes();
     createMapParticles();
-    setTimeout(() => { showScene('map-screen'); updateMapHUD(); }, 5200);
+    loadGame();
+    setTimeout(() => {
+      try {
+        if (progress.maxUnlockedLevel === 1 && state.score === 0) {
+          (window as any).showScene('splash-screen');
+        } else {
+          (window as any).showScene('map-screen');
+          updateMapHUD();
+        }
+      } catch (e) { (window as any).gameLog("Hata: " + e); }
+
+      const resume = () => { if (audioCtx) audioCtx.resume(); };
+      document.addEventListener('mousedown', resume, { once: true });
+      document.addEventListener('touchstart', resume, { once: true });
+    }, 1500); // Reduced delay to avoid "black screen" confusion
+
+    // window.showScene logic consolidated at the start of useEffect to prevent recursion
+
 
     const moveMap: Record<string, [number, number]> = { 'up': [0, -1], 'down': [0, 1], 'left': [-1, 0], 'right': [1, 0] };
     Object.keys(moveMap).forEach(id => {
@@ -692,44 +948,69 @@ export default function App() {
             <h1 className="splash-title">Gölge Labirenti</h1>
             <div className="splash-subtitle">Karanlığın Derinliklerinde</div>
           </div>
-          <button className="btn-start-game" onClick={() => (window as any).showScene('map-screen')}>BAŞLA</button>
+          <button className="btn-start-game" onClick={() => {
+            if (audioCtx) audioCtx.resume();
+            if (soundManager) soundManager.play('collect', 0.8);
+            (window as any).showScene('map-screen');
+          }}>BAŞLA</button>
         </div>
       </div>
 
-      {/* GLOBAL PREMIUM HEADER - Visible on all screens */}
-      <div className="premium-header">
-        <div className="header-section left-panel-header">
-          <div className="header-stat-group">
-            <span className="header-stat-label">RUH ENERJİSİ</span>
-            <div className="header-stat-value">
-              <i>✧</i> <span id="map-score-global">0</span>
+      <div className="mystic-header">
+        <div className="header-glass-layer"></div>
+        <div className="header-glow-line"></div>
+
+        <div className="mystic-left">
+          <div className="player-soul-plate">
+            <div className="soul-avatar">
+              <div className="avatar-ring"></div>
+              <Shield size={20} color="var(--gold)" />
+              <div className="soul-lvl" id="map-level-global">1</div>
             </div>
-          </div>
-          <div className="header-stat-group">
-            <span className="header-stat-label">KADEME</span>
-            <div className="header-stat-value">
-              <i>◈</i> <span id="map-level-global">1</span>
+            <div className="soul-vitals">
+              <div className="vital-row">
+                <Zap size={10} color="#00ffcc" />
+                <div className="vital-bar hp">
+                  <div className="vital-fill" id="hp-bar-fill" style={{ width: '100%' }}></div>
+                </div>
+              </div>
+              <div className="vital-row">
+                <Sparkles size={10} color="var(--primary)" />
+                <div className="vital-bar xp">
+                  <div className="vital-fill" style={{ width: '65%' }}></div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="header-center">
-          <div className="header-title-box">
-            <h1 className="header-main-title" id="global-header-title">Gölge Labirenti</h1>
-            <div className="header-subtitle" id="global-header-subtitle">Karanlığın Derinlikleri</div>
+        <div className="mystic-center">
+          <div className="mystic-title-group">
+            <h1 id="global-header-title">GÖLGE LABİRENTİ</h1>
+            <div className="mystic-subtitle">
+              <div className="line-accent"></div>
+              <span id="global-header-subtitle">DERİNLİK 1</span>
+              <div className="line-accent"></div>
+            </div>
           </div>
         </div>
 
-        <div className="header-section right-panel-header">
-          <div className="header-stat-group" style={{ alignItems: 'flex-end' }}>
-            <span className="header-stat-label">SİSTEM</span>
-            <div className="header-stat-value" style={{ fontSize: '0.7rem', color: 'var(--primary)', letterSpacing: '2px' }}>
-              AKTİF
+        <div className="mystic-right">
+          <div className="mystic-stat">
+            <div className="stat-label">TOPLANAN RUH</div>
+            <div className="stat-value-group">
+              <Sparkles size={14} color="var(--primary)" />
+              <span id="map-score-global">0</span>
             </div>
+          </div>
+          <div className="mystic-divider"></div>
+          <div className="mystic-system-status">
+            <div className="status-indicator"></div>
+            <span>KARARLI</span>
           </div>
         </div>
       </div>
-
+      鼓
       <div id="map-screen" className="scene">
         <div className="torchlight-overlay"></div>
         <div id="bag-btn-map" className="bag-btn-ui" onClick={() => (window as any).toggleInventory()} style={{ position: 'absolute', top: '20px', right: '20px' }}>💼</div>
@@ -887,6 +1168,7 @@ export default function App() {
           <button className="btn-action" onClick={() => (window as any).closeModal()}>DEVAM ET</button>
         </div>
       </div>
+      <div id="debug-log" style={{ position: 'fixed', bottom: 0, left: 0, background: 'rgba(255,0,0,0.5)', color: 'white', fontSize: '10px', zIndex: 9999, pointerEvents: 'none' }}></div>
     </div>
   );
 }
