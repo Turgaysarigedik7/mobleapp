@@ -2113,6 +2113,7 @@ export default function App() {
       crystals.forEach(c => { if (c.active && c.x === player.x && c.y === player.y) { c.active = false; state.score += 100; const scoreVal = document.getElementById('map-score-global'); if (scoreVal) scoreVal.innerText = state.score.toString(); soundManager.play('click', 0.3); spawnParticles(c.x * state.cellSize, c.y * state.cellSize, 'rgba(0,242,255,1)'); } });
 
       // Sanctuaries
+      let zoneChanged = false;
       sanctuaries.forEach(s => {
         const dist = Math.hypot(s.x - player.x, s.y - player.y);
         if (dist <= s.radius) {
@@ -2122,6 +2123,7 @@ export default function App() {
             showToast(`${s.zone + 1}. tapınak bulundu! Bölge açıldı.`);
             soundManager.play('sanctuaryBell', 0.6);
             spawnParticles(s.x * state.cellSize, s.y * state.cellSize, 'rgba(255,215,0,1)', 16);
+            zoneChanged = true;
           }
           if (!s.keyTaken) {
             s.keyTaken = true;
@@ -2130,7 +2132,7 @@ export default function App() {
             showToast(`Tapınak anahtarı! ${state.keysCollected}/${state.keysRequired}`);
             soundManager.play('key', 0.5);
             spawnParticles(s.x * state.cellSize, s.y * state.cellSize, 'rgba(255,215,0,1)', 12);
-            updateScrollHUD();
+            zoneChanged = true;
           }
           // Saklanma yeri: tapınak içinde hafif iyileşme
           if (state.health < progress.maxHealth) {
@@ -2139,7 +2141,10 @@ export default function App() {
           }
         }
       });
-      state.zone = getPlayerZone();
+      const newZone = getPlayerZone();
+      if (newZone !== state.zone) zoneChanged = true;
+      state.zone = newZone;
+      if (zoneChanged) updateScrollHUD();
 
       // Exit: 7 tapınak anahtarı gerekli
       if (player.x === exit.x && player.y === exit.y) {
