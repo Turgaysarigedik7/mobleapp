@@ -213,6 +213,12 @@ export default function App() {
       visited: boolean;
       keyTaken: boolean;
       radius: number;
+      width: number;
+      height: number;
+      minX: number;
+      minY: number;
+      maxX: number;
+      maxY: number;
     }
     let sanctuaries: Sanctuary[] = [];
 
@@ -1183,27 +1189,69 @@ export default function App() {
     function spawnSanctuaries() {
       sanctuaries = [];
       const count = state.sanctuaryCount;
+      const roomSizes = [4, 5, 4, 5, 4, 5, 4];
       for (let i = 0; i < count; i++) {
+        const w = roomSizes[i % roomSizes.length];
+        const h = w;
+        const halfW = Math.floor(w / 2);
+        const halfH = Math.floor(h / 2);
         let rx, ry, attempts = 0;
+        let areaClear = false;
         do {
-          rx = Math.floor(Math.random() * state.gridSize);
-          ry = Math.floor(Math.random() * state.gridSize);
+          rx = Math.floor(Math.random() * (state.gridSize - w - 2)) + halfW + 1;
+          ry = Math.floor(Math.random() * (state.gridSize - h - 2)) + halfH + 1;
           attempts++;
+          areaClear = true;
+          for (let dy = -halfH; dy <= halfH; dy++) {
+            for (let dx = -halfW; dx <= halfW; dx++) {
+              if (maze[ry + dy]?.[rx + dx] !== 0) areaClear = false;
+            }
+          }
         } while (
-          (maze[ry]?.[rx] !== 0 ||
-            (Math.abs(rx - player.x) < 4 && Math.abs(ry - player.y) < 4) ||
-            (rx === exit.x && ry === exit.y) ||
-            sanctuaries.some(s => Math.hypot(s.x - rx, s.y - ry) < 6)) &&
+          (!areaClear ||
+            (Math.abs(rx - player.x) < 6 && Math.abs(ry - player.y) < 6) ||
+            (rx >= exit.x - 3 && rx <= exit.x + 3 && ry >= exit.y - 3 && ry <= exit.y + 3) ||
+            sanctuaries.some(s => Math.hypot(s.x - rx, s.y - ry) < 10)) &&
           attempts < 300
         );
         if (attempts >= 300) continue;
+
+        // Tapınak odacığını oluştur (içi boş, çerçeve duvar)
+        const minX = rx - halfW;
+        const minY = ry - halfH;
+        const maxX = rx + halfW;
+        const maxY = ry + halfH;
+        for (let r = minY; r <= maxY; r++) {
+          for (let c = minX; c <= maxX; c++) {
+            if (r > 0 && r < state.gridSize - 1 && c > 0 && c < state.gridSize - 1) maze[r][c] = 0;
+          }
+        }
+
+        // Rastgele bir giriş aç
+        const sides = [
+          { x: minX + halfW, y: minY - 1 },
+          { x: minX + halfW, y: maxY + 1 },
+          { x: minX - 1, y: minY + halfH },
+          { x: maxX + 1, y: minY + halfH }
+        ];
+        const entrance = sides[Math.floor(Math.random() * sides.length)];
+        if (entrance.x > 0 && entrance.x < state.gridSize - 1 && entrance.y > 0 && entrance.y < state.gridSize - 1) {
+          maze[entrance.y][entrance.x] = 0;
+        }
+
         sanctuaries.push({
           id: i,
           x: rx, y: ry,
           zone: i,
           visited: false,
           keyTaken: false,
-          radius: 1.5
+          radius: Math.max(halfW, halfH) + 0.5,
+          width: w,
+          height: h,
+          minX,
+          minY,
+          maxX,
+          maxY
         });
       }
       // Tapınakları merkeze yakınlığa göre sırala (zone 0 başlangıç bölgesi)
@@ -1581,20 +1629,29 @@ export default function App() {
       // Sanctuaries (tapınaklar)
       sanctuaries.forEach(s => {
         const dist = Math.hypot(s.x - player.sx, s.y - player.sy) * state.cellSize;
-        if (dist < baseRadius * 3) {
-          const sx = s.x * state.cellSize, sy = s.y * state.cellSize;
-          const alpha = Math.max(0, 1 - (dist / (baseRadius * 2.5)));
-          const radius = s.radius * state.cellSize;
+        if (dist < baseRadius * 4) {
+          const alpha = Math.max(0, 1 - (dist / (baseRadius * 3)));
+          const cx = (s.minX + s.maxX + 1) * state.cellSize / 2;
+          const cy = (s.minY + s.maxY + 1) * state.cellSize / 2;
+          const w = (s.maxX - s.minX + 1) * state.cellSize;
+          const h = (s.maxY - s.minY + 1) * state.cellSize;
+          // Oda zemin rengi
+          ctx.fillStyle = s.visited ? `rgba(255, 215, 0, ${alpha * 0.12})` : `rgba(200, 180, 255, ${alpha * 0.12})`;
+          ctx.fillRect(s.minX * state.cellSize, s.minY * state.cellSize, w, h);
+          // Çerçeve
+          ctx.strokeStyle = s.visited ? `rgba(255, 215, 0, ${alpha * 0.5})` : `rgba(200, 180, 255, ${alpha * 0.5})`;
+          ctx.lineWidth = 3;
+          ctx.strokeRect(s.minX * state.cellSize, s.minY * state.cellSize, w, h);
           // Güvenli alan glow
-          const grad = ctx.createRadialGradient(sx + state.cellSize / 2, sy + state.cellSize / 2, 0, sx + state.cellSize / 2, sy + state.cellSize / 2, radius);
-          grad.addColorStop(0, s.visited ? `rgba(255, 215, 0, ${alpha * 0.35})` : `rgba(200, 180, 255, ${alpha * 0.35})`);
+          const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * 0.6);
+          grad.addColorStop(0, s.visited ? `rgba(255, 215, 0, ${alpha * 0.25})` : `rgba(200, 180, 255, ${alpha * 0.25})`);
           grad.addColorStop(1, 'rgba(0,0,0,0)');
           ctx.fillStyle = grad;
-          ctx.beginPath(); ctx.arc(sx + state.cellSize / 2, sy + state.cellSize / 2, radius, 0, Math.PI * 2); ctx.fill();
-          // Tapınak işareti
+          ctx.beginPath(); ctx.arc(cx, cy, Math.max(w, h) * 0.6, 0, Math.PI * 2); ctx.fill();
+          // Tapınak işareti (merkezde)
           ctx.fillStyle = s.keyTaken ? `rgba(255, 215, 0, ${alpha})` : `rgba(200, 180, 255, ${alpha})`;
-          ctx.font = `${state.cellSize * 0.6}px serif`; ctx.textAlign = "center";
-          ctx.fillText(s.keyTaken ? "☆" : "⌂", sx + state.cellSize / 2, sy + state.cellSize / 1.4);
+          ctx.font = `${state.cellSize * 0.7}px serif`; ctx.textAlign = "center";
+          ctx.fillText(s.keyTaken ? "☆" : "⌂", cx, cy + state.cellSize * 0.25);
         }
       });
 
@@ -1728,24 +1785,17 @@ export default function App() {
       const sanctuarySafe = insideSanctuary !== undefined;
 
       // Tapınağa yaklaşma: ziyaret edilmemiş tapınak görülünce tüm canavarlar oraya koşar
-      const approaching = sanctuaries.find(s => !s.visited && Math.hypot(s.x - player.x, s.y - player.y) < 5);
+      const approaching = sanctuaries.find(s => !s.visited && Math.hypot(s.x - player.x, s.y - player.y) < 7);
       if (approaching && !(window as any).sanctuaryAlertFired) {
         (window as any).sanctuaryAlertFired = true;
         showToast("Tapınak! Canavarlar akın ediyor...");
         state.shakeAmount = 30;
         soundManager.play('sanctuaryAlert', 0.6);
-        enemies.forEach(e => {
-          if (e.state !== 'stun') {
-            e.state = 'chase';
-            e.lastSeenX = approaching.x;
-            e.lastSeenY = approaching.y;
-            e.searchTimer = 300;
-          }
-        });
       }
       if (!approaching) (window as any).sanctuaryAlertFired = false;
 
       enemies.forEach(enemy => {
+        const rushingSanctuary = approaching !== undefined && !sanctuarySafe;
         const gridDist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
         const pixelDist = gridDist * state.cellSize;
         enemy.inLight = pixelDist < state.lightRadius;
@@ -1804,18 +1854,24 @@ export default function App() {
         if (enemy.type === 'illusion') contactDamage = 0.8;
 
         // Görüş / aggro (line of sight + mesafe)
-        let seesPlayer = gridDist < enemy.aggroRadius && hasLineOfSight(enemy.x, enemy.y, player.x, player.y);
-        // Tapınağa akın anında görüş mesafesi artar
-        if (approaching && !sanctuarySafe) seesPlayer = true;
+        const seesPlayer = gridDist < enemy.aggroRadius && hasLineOfSight(enemy.x, enemy.y, player.x, player.y);
 
         if (seesPlayer) {
           enemy.state = 'chase';
           enemy.lastSeenX = player.x;
           enemy.lastSeenY = player.y;
           enemy.searchTimer = 120;
-        } else if (enemy.state === 'chase') {
+        } else if (enemy.state === 'chase' && !rushingSanctuary) {
           enemy.state = 'search';
           enemy.searchTimer = 120;
+        }
+
+        // Tapınağa akın: tüm canavarlar tapınağı hedef alır
+        if (rushingSanctuary) {
+          enemy.state = 'chase';
+          enemy.lastSeenX = approaching.x;
+          enemy.lastSeenY = approaching.y;
+          enemy.searchTimer = 300;
         }
 
         // Tapınak güvenli alanı: oyuncu içerideyse canavarlar etrafında arar, saldıramaz
@@ -1827,7 +1883,10 @@ export default function App() {
         // Hareket
         enemy.wait++;
         let targetX = enemy.x, targetY = enemy.y;
-        if (enemy.state === 'chase') { targetX = player.x; targetY = player.y; }
+        if (enemy.state === 'chase') {
+          if (rushingSanctuary && approaching) { targetX = approaching.x; targetY = approaching.y; }
+          else { targetX = player.x; targetY = player.y; }
+        }
         else if (enemy.state === 'search') { targetX = enemy.lastSeenX; targetY = enemy.lastSeenY; }
         else {
           // idle: rastgele dolaş
@@ -2180,7 +2239,7 @@ export default function App() {
       return nearest.zone;
     }
     function getPlayerZone() { return getZoneAt(player.x, player.y); }
-    function isInsideSanctuary(x: number, y: number, s: Sanctuary) { return Math.hypot(s.x - x, s.y - y) <= s.radius; }
+    function isInsideSanctuary(x: number, y: number, s: Sanctuary) { return x >= s.minX && x <= s.maxX && y >= s.minY && y <= s.maxY; }
 
     function move(dx: number, dy: number) {
       if (!state.active) return;
@@ -2189,10 +2248,9 @@ export default function App() {
       const isOpenSecretDoor = secretDoors.some(d => d.x === nx && d.y === ny && d.open);
       if (maze[ny]?.[nx] === 0 || isOpenSecretDoor) {
         const targetZone = getZoneAt(nx, ny);
-        if (targetZone > state.maxZone) {
-          showToast(`Bölge ${targetZone + 1} kilitli! Önce bu bölgenin tapınağını bul.`);
-          return;
-        }
+        const enteringSanctuary = sanctuaries.some(s => isInsideSanctuary(nx, ny, s));
+        // Kilitli bölge: sessizce engelle, ama tapınağın içine girmeye izin ver
+        if (targetZone > state.maxZone && !enteringSanctuary) return;
         player.x = nx; player.y = ny;
         state.zone = getPlayerZone();
         soundManager.playStep();
