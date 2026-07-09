@@ -1190,49 +1190,64 @@ export default function App() {
       sanctuaries = [];
       const count = state.sanctuaryCount;
       const roomSizes = [4, 5, 4, 5, 4, 5, 4];
+
+      // Tüm boş hücreleri aday olarak topla
+      const candidates: { x: number, y: number }[] = [];
+      for (let r = 2; r < state.gridSize - 2; r++) {
+        for (let c = 2; c < state.gridSize - 2; c++) {
+          if (maze[r][c] === 0) candidates.push({ x: c, y: r });
+        }
+      }
+      candidates.sort(() => Math.random() - 0.5);
+
       for (let i = 0; i < count; i++) {
         const w = roomSizes[i % roomSizes.length];
         const h = w;
         const halfW = Math.floor(w / 2);
         const halfH = Math.floor(h / 2);
-        let rx, ry, attempts = 0;
-        let areaClear = false;
-        do {
-          rx = Math.floor(Math.random() * (state.gridSize - w - 2)) + halfW + 1;
-          ry = Math.floor(Math.random() * (state.gridSize - h - 2)) + halfH + 1;
-          attempts++;
-          areaClear = true;
-          for (let dy = -halfH; dy <= halfH; dy++) {
-            for (let dx = -halfW; dx <= halfW; dx++) {
-              if (maze[ry + dy]?.[rx + dx] !== 0) areaClear = false;
-            }
-          }
-        } while (
-          (!areaClear ||
-            (Math.abs(rx - player.x) < 6 && Math.abs(ry - player.y) < 6) ||
-            (rx >= exit.x - 3 && rx <= exit.x + 3 && ry >= exit.y - 3 && ry <= exit.y + 3) ||
-            sanctuaries.some(s => Math.hypot(s.x - rx, s.y - ry) < 10)) &&
-          attempts < 300
-        );
-        if (attempts >= 300) continue;
+        let rx = 0, ry = 0;
+        let placed = false;
 
-        // Tapınak odacığını oluştur (içi boş, çerçeve duvar)
-        const minX = rx - halfW;
-        const minY = ry - halfH;
-        const maxX = rx + halfW;
-        const maxY = ry + halfH;
+        // Rastgele boş hücreden uygun aday bul
+        for (const cand of candidates) {
+          rx = cand.x;
+          ry = cand.y;
+          if (Math.abs(rx - player.x) < 6 && Math.abs(ry - player.y) < 6) continue;
+          if (rx >= exit.x - 3 && rx <= exit.x + 3 && ry >= exit.y - 3 && ry <= exit.y + 3) continue;
+          if (sanctuaries.some(s => Math.hypot(s.x - rx, s.y - ry) < 8)) continue;
+          placed = true;
+          break;
+        }
+
+        if (!placed) {
+          // Son çare: merkeze yakın bir boş hücre
+          const fallback = candidates.find(c => Math.hypot(c.x - state.gridSize / 2, c.y - state.gridSize / 2) < state.gridSize / 3) || candidates[0] || { x: 5, y: 5 };
+          rx = fallback.x; ry = fallback.y;
+        }
+
+        // Oda sınırlarını labirent sınırlarına göre ayarla ve duvarları kaldır
+        const minX = Math.max(1, rx - halfW);
+        const minY = Math.max(1, ry - halfH);
+        const maxX = Math.min(state.gridSize - 2, rx + halfW);
+        const maxY = Math.min(state.gridSize - 2, ry + halfH);
         for (let r = minY; r <= maxY; r++) {
           for (let c = minX; c <= maxX; c++) {
-            if (r > 0 && r < state.gridSize - 1 && c > 0 && c < state.gridSize - 1) maze[r][c] = 0;
+            maze[r][c] = 0;
           }
         }
 
+        // Merkezi oda içinde yenile
+        rx = Math.floor((minX + maxX) / 2);
+        ry = Math.floor((minY + maxY) / 2);
+
         // Rastgele bir giriş aç
+        const midX = Math.floor((minX + maxX) / 2);
+        const midY = Math.floor((minY + maxY) / 2);
         const sides = [
-          { x: minX + halfW, y: minY - 1 },
-          { x: minX + halfW, y: maxY + 1 },
-          { x: minX - 1, y: minY + halfH },
-          { x: maxX + 1, y: minY + halfH }
+          { x: midX, y: minY - 1 },
+          { x: midX, y: maxY + 1 },
+          { x: minX - 1, y: midY },
+          { x: maxX + 1, y: midY }
         ];
         const entrance = sides[Math.floor(Math.random() * sides.length)];
         if (entrance.x > 0 && entrance.x < state.gridSize - 1 && entrance.y > 0 && entrance.y < state.gridSize - 1) {
@@ -1246,17 +1261,16 @@ export default function App() {
           visited: false,
           keyTaken: false,
           radius: Math.max(halfW, halfH) + 0.5,
-          width: w,
-          height: h,
-          minX,
-          minY,
-          maxX,
-          maxY
+          width: maxX - minX + 1,
+          height: maxY - minY + 1,
+          minX, minY, maxX, maxY
         });
       }
       // Tapınakları merkeze yakınlığa göre sırala (zone 0 başlangıç bölgesi)
       sanctuaries.sort((a, b) => Math.hypot(a.x - 1, a.y - 1) - Math.hypot(b.x - 1, b.y - 1));
       sanctuaries.forEach((s, idx) => { s.zone = idx; s.id = idx; });
+
+      console.log("Tapınaklar:", sanctuaries.map(s => ({ zone: s.zone, x: s.x, y: s.y, w: s.width, h: s.height })));
     }
 
     function updateScrollHUD() {
