@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1100" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <filter id="paper-noise">
+      <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="3" result="noise"/>
+      <feDiffuseLighting in="noise" lighting-color="#1a1612" surfaceScale="1" result="light">
+        <feDistantLight azimuth="45" elevation="60"/>
+      </feDiffuseLighting>
+      <feBlend in="SourceGraphic" in2="light" mode="multiply"/>
+    </filter>
+    <linearGradient id="seaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0f0d12"/>
+      <stop offset="50%" stop-color="#141018"/>
+      <stop offset="100%" stop-color="#0d0b10"/>
+    </linearGradient>
+    <radialGradient id="landGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#241e18" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#181410" stop-opacity="1"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Deniz arka planı -->
+  <rect width="600" height="1100" fill="url(#seaGrad)"/>
+
+  <!-- Eski harita gridi -->
+  <g opacity="0.06" stroke="#a68b5e" stroke-width="0.5" fill="none">
+    <defs>
+      <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
+        <path d="M60 0 L0 0 L0 60"/>
+      </pattern>
+    </defs>
+    <rect width="600" height="1100" fill="url(#grid)"/>
+  </g>
+
+  <!-- Ana kıta - güneyden kuzeye uzanan kara parçası -->
+  <path d="M420 940 
+           C380 960, 320 950, 280 930
+           C220 900, 180 860, 170 800
+           C160 740, 190 700, 230 670
+           C260 640, 270 600, 250 560
+           C230 520, 190 500, 160 470
+           C120 430, 110 380, 130 330
+           C150 280, 180 240, 220 210
+           C260 180, 300 150, 340 130
+           C380 110, 430 120, 460 160
+           C490 200, 510 250, 500 300
+           C490 350, 470 400, 480 450
+           C490 500, 520 540, 530 590
+           C540 640, 520 690, 490 730
+           C460 770, 440 820, 450 870
+           C460 910, 440 930, 420 940 Z"
+        fill="url(#landGlow)" stroke="#3a2e20" stroke-width="1.5" opacity="0.9" filter="url(#paper-noise)"/>
+
+  <!-- Kuzeydeki karanlık adacık (Karanlık Taht) -->
+  <path d="M480 180 
+           C460 170, 430 180, 420 210
+           C415 240, 430 270, 460 280
+           C490 290, 520 270, 525 240
+           C530 210, 510 190, 480 180 Z"
+        fill="#181410" stroke="#4a3525" stroke-width="1" opacity="0.85"/>
+
+  <!-- Batıdaki uçurum yarımadası (Derinlikler) -->
+  <path d="M120 340
+           C90 360, 70 400, 80 450
+           C90 500, 120 540, 150 560
+           C180 580, 200 560, 190 520
+           C180 480, 150 440, 140 400
+           C135 370, 125 350, 120 340 Z"
+        fill="#15120f" stroke="#3a2e20" stroke-width="1" opacity="0.8"/>
+
+  <!-- Doğudaki orman/bahçe bölgesi (Unutulmuş Bahçe) -->
+  <path d="M470 470
+           C450 460, 420 480, 410 520
+           C400 560, 420 600, 450 620
+           C480 640, 510 620, 520 580
+           C530 540, 510 500, 490 480
+           C480 470, 470 470, 470 470 Z"
+        fill="#18150f" stroke="#2d4c1e" stroke-width="1" opacity="0.75"/>
+
+  <!-- Ortadaki göl -->
+  <ellipse cx="350" cy="450" rx="45" ry="30" fill="#0d0b10" stroke="#3a3a30" stroke-width="0.8" opacity="0.7"/>
+
+  <!-- Nehirler -->
+  <g fill="none" stroke="#4a4030" stroke-width="1.5" opacity="0.5" stroke-linecap="round">
+    <path d="M350 450 C340 500, 360 550, 330 600 C300 650, 280 700, 300 760"/>
+    <path d="M350 450 C380 470, 420 480, 450 520"/>
+    <path d="M350 450 C320 430, 280 420, 240 440"/>
+  </g>
+
+  <!-- Dağlar -->
+  <g fill="#0f0c0a" stroke="#2a2218" stroke-width="0.8" opacity="0.7">
+    <path d="M280 700 L300 660 L320 700 Z"/>
+    <path d="M300 700 L330 640 L360 700 Z"/>
+    <path d="M250 500 L270 460 L290 500 Z"/>
+    <path d="M430 240 L450 200 L470 240 Z"/>
+    <path d="M120 380 L140 340 L160 380 Z"/>
+    <path d="M470 530 L490 500 L510 530 Z"/>
+  </g>
+
+  <!-- Orman noktaları -->
+  <g fill="#1e2d16" opacity="0.5">
+    <circle cx="440" cy="520" r="2"/><circle cx="450" cy="540" r="1.5"/><circle cx="430" cy="550" r="2"/>
+    <circle cx="460" cy="560" r="1.5"/><circle cx="475" cy="530" r="2"/><circle cx="485" cy="560" r="1.5"/>
+    <circle cx="495" cy="590" r="2"/><circle cx="510" cy="570" r="1.5"/>
+  </g>
+
+  <!-- Gizemli rotalar (noktalı) -->
+  <g fill="none" stroke="#6b5a3a" stroke-width="1" stroke-dasharray="4 6" opacity="0.25" stroke-linecap="round">
+    <path d="M300 760 C250 720, 220 650, 240 560"/>
+    <path d="M300 760 C340 780, 380 750, 420 690"/>
+    <path d="M240 560 C200 500, 160 450, 140 400"/>
+    <path d="M420 690 C450 620, 470 550, 480 470"/>
+    <path d="M140 400 C130 340, 160 280, 220 220"/>
+  </g>
+
+  <!-- Harita sınır çizgisi -->
+  <rect x="30" y="30" width="540" height="1040" fill="none" stroke="#5c4a2e" stroke-width="1" opacity="0.25" rx="8"/>
+  <rect x="40" y="40" width="520" height="1020" fill="none" stroke="#5c4a2e" stroke-width="0.5" opacity="0.15" rx="6"/>
+
+  <!-- Pusula -->
+  <g transform="translate(520, 80)" opacity="0.15">
+    <circle cx="0" cy="0" r="22" fill="none" stroke="#a68b5e" stroke-width="1"/>
+    <path d="M0 -18 L4 0 L0 18 L-4 0 Z" fill="#a68b5e"/>
+    <text x="0" y="-26" text-anchor="middle" fill="#a68b5e" font-size="8" font-family="serif">K</text>
+  </g>
+
+  <!-- Başlık damgası -->
+  <text x="300" y="980" text-anchor="middle" fill="#5c4a2e" font-family="serif" font-size="28" letter-spacing="8" opacity="0.12" font-style="italic">Gölge Diyarı</text>
+</svg>
